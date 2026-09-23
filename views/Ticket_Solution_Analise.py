@@ -187,112 +187,141 @@ if f_ticket_type: df = df[df['TicketType'].isin(f_ticket_type)]
 if f_defect1: df = df[df['Solution/Defect LV 1'].isin(f_defect1)]
 if f_defect2: df = df[df['Solution/Defect LV 2'].isin(f_defect2)]
 
+
 # ==========================================
 # HEADER
 # ==========================================
-st.markdown("<h2>💡 Problem & Solution Analysis</h2>", unsafe_allow_html=True)
+st.markdown("<h2>💡 Deep Analytical Insights</h2>", unsafe_allow_html=True)
 
-original_filename = "Default System Data"
-if os.path.exists(METADATA_FILE):
-    try:
-        with open(METADATA_FILE, "r", encoding="utf-8") as f:
-            meta = json.load(f)
-            original_filename = meta.get("filename", "Unknown")
-    except: pass
-
+original_filename = "Google Sheets Database"
 date_text = "N/A"
 if not df.empty and 'CreateDate' in df.columns and not df['CreateDate'].isna().all():
     s_date = df['CreateDate'].dt.date.min().strftime('%d %b %Y')
     e_date = df['CreateDate'].dt.date.max().strftime('%d %b %Y')
     date_text = f"{s_date} - {e_date}"
 
-st.markdown(f"<p style='color: #0F766E;'>ระบบวิเคราะห์และจัดกลุ่มปัญหาอัตโนมัติ (Blue-Green Theme) | 📁 <b>{original_filename}</b> | 📅 <b>{date_text}</b></p>", unsafe_allow_html=True)
+st.markdown(f"<p style='color: #0F766E;'>ระบบวิเคราะห์เชิงลึก (Deep Analytics) | 📁 <b>{original_filename}</b> | 📅 <b>{date_text}</b></p>", unsafe_allow_html=True)
 
-# Filter out 'Unknown' or invalid defects for the core grouping
-if 'Solution/Defect LV 1' in df.columns and 'Solution/Defect LV 2' in df.columns:
-    valid_defects = df[~df['Solution/Defect LV 1'].str.contains('Unknown|-', case=False, regex=True)]
-else:
-    valid_defects = pd.DataFrame()
+if df.empty:
+    st.stop()
 
 # ==========================================
-# GROUPING LOGIC (KNOWLEDGE BASE)
+# ANALYTICAL TABS
 # ==========================================
-kb_df = pd.DataFrame()
-if not valid_defects.empty:
-    # Group by LV1 and LV2
-    group_cols = ['Solution/Defect LV 1', 'Solution/Defect LV 2']
-    
-    # We want to aggregate: Count of tickets, and Mode (most frequent) description & solution
-    kb_df = valid_defects.groupby(group_cols).agg(
-        Frequency=('TicketID', 'count'),
-        Sample_Problem=('DescriptionOfProblem', lambda x: x.mode()[0] if not x.mode().empty else x.iloc[0]),
-        Recommended_Solution=('SolutionForUser', lambda x: x.mode()[0] if not x.mode().empty else x.iloc[0])
-    ).reset_index().sort_values('Frequency', ascending=False)
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    "1️⃣ Ticket Type (Incident vs Request)", 
+    "2️⃣ Root Cause (Sustainable Fix)", 
+    "3️⃣ Config Requests", 
+    "4️⃣ Business Group Pain Points",
+    "5️⃣ Channel Effectiveness"
+])
 
+with tab1:
+    st.markdown("<h3>1️⃣ สัดส่วนประเภทงาน (Ticket Type Analysis)</h3>", unsafe_allow_html=True)
+    st.markdown("เปรียบเทียบระหว่าง 'ปัญหาที่ระบบขัดข้อง' (Incident) กับ 'การขอให้ตั้งค่า/ขอข้อมูล' (Request)")
+    if 'TicketType' in df.columns:
+        type_df = df['TicketType'].fillna('Unknown').value_counts().reset_index()
+        type_df.columns = ['TicketType', 'Count']
+        
+        c1, c2 = st.columns([1, 1])
+        with c1:
+            fig1 = px.pie(type_df, values='Count', names='TicketType', hole=0.4, color_discrete_sequence=px.colors.qualitative.Pastel)
+            st.plotly_chart(fig1, use_container_width=True)
+        with c2:
+            st.markdown("<div class='analysis-card'>", unsafe_allow_html=True)
+            st.markdown("**💡 ไอเดียเชิงบริหาร:**")
+            if not type_df.empty:
+                top_type = type_df.iloc[0]['TicketType']
+                st.markdown(f"- งานส่วนใหญ่ของเราคือ **{top_type}**")
+                if 'request' in top_type.lower():
+                    st.markdown("- สะท้อนว่า User ต้องการความช่วยเหลือด้านการใช้งานหรือตั้งค่าเป็นหลัก ควรพิจารณาสร้าง **คู่มือแบบ Self-Service** หรือระบบ Automation เพื่อลดโหลดของทีม")
+                else:
+                    st.markdown("- สะท้อนว่าระบบมีความไม่เสถียร ควรนำข้อมูลไปหารือกับทีม Developer เพื่อเพิ่มความมั่นคงของระบบ")
+            st.markdown("</div>", unsafe_allow_html=True)
+            
+            if 'EffortTime' in df.columns:
+                avg_effort = df.groupby('TicketType')['EffortTime'].mean().reset_index()
+                fig_bar = px.bar(avg_effort, x='TicketType', y='EffortTime', title="Avg Effort Time by Type (Days)")
+                st.plotly_chart(fig_bar, use_container_width=True)
 
-# ==========================================
-# AI INSIGHTS & RECOMMENDATIONS
-# ==========================================
-st.markdown("<div class='analysis-card'>", unsafe_allow_html=True)
-st.markdown("<h3>🤖 AI Analytical Recommendations</h3>", unsafe_allow_html=True)
+with tab2:
+    st.markdown("<h3>2️⃣ วิเคราะห์รากของปัญหาเพื่อการแก้ไขแบบยั่งยืน (Root Cause Analysis)</h3>", unsafe_allow_html=True)
+    if 'Solution/Defect LV 1' in df.columns and 'Solution/Defect LV 2' in df.columns:
+        valid_defects = df[~df['Solution/Defect LV 1'].str.contains('Unknown|-', case=False, regex=True, na=False)]
+        
+        if not valid_defects.empty:
+            kb_df = valid_defects.groupby(['Solution/Defect LV 1', 'Solution/Defect LV 2']).size().reset_index(name='Count')
+            fig_tree = px.treemap(kb_df, path=['Solution/Defect LV 1', 'Solution/Defect LV 2'], values='Count', color='Count', color_continuous_scale=['#e0f2fe', '#7dd3fc', '#38bdf8', '#0284c7', '#082f49'])
+            st.plotly_chart(fig_tree, use_container_width=True)
+            
+            st.markdown("<div class='analysis-card'>", unsafe_allow_html=True)
+            st.markdown("**💡 ไอเดียเชิงบริหาร:**")
+            st.markdown("- กราฟด้านบนแสดงให้เห็นว่า **ระบบไหน/โมดูลไหน สร้างปัญหาซ้ำซากมากที่สุด**")
+            top_lv1 = kb_df.groupby('Solution/Defect LV 1')['Count'].sum().idxmax()
+            st.markdown(f"- แนะนำให้นำรายงานหมวดหมู่ **{top_lv1}** ไปประชุมร่วมกับทีม Developer หรือ Vendor เพื่อหาแนวทาง **แก้ไขที่ต้นเหตุ (Permanent Fix)** เพื่อที่ทีม GP จะได้ไม่ต้องมาตามแก้ปลายเหตุ (Workaround) อีกต่อไป")
+            st.markdown("</div>", unsafe_allow_html=True)
+        else:
+            st.info("ไม่มีข้อมูล Defect ที่ระบุชัดเจน")
 
-if not kb_df.empty:
-    top_lv1 = kb_df.groupby('Solution/Defect LV 1')['Frequency'].sum().idxmax()
-    top_lv1_count = kb_df.groupby('Solution/Defect LV 1')['Frequency'].sum().max()
-    
-    top_specific = kb_df.iloc[0]
-    
-    st.markdown(f"""
-    **ข้อสังเกตจากข้อมูล (Data Insights):**
-    1. 🎯 **ปัญหาหลักที่พบมากที่สุด:** หมวดหมู่ **{top_lv1}** มีจำนวนการแจ้งเหตุสูงสุดถึง {top_lv1_count} รายการ
-    2. 🔍 **ปัญหาย่อยที่พบบ่อยที่สุด:** **{top_specific['Solution/Defect LV 1']} ➔ {top_specific['Solution/Defect LV 2']}** (เกิดซ้ำ {top_specific['Frequency']} ครั้ง)
-    
-    **ข้อเสนอแนะเชิงบริหาร (Recommendations):**
-    - 💡 ควรนำแนวทางแก้ไข: *"{top_specific['Recommended_Solution']}"* จัดทำเป็น **Self-Service Manual** เผยแพร่ให้ผู้ใช้งานเพื่อลดปริมาณตั๋วในหมวดหมู่นี้
-    - 🔄 หากปัญหาลักษณะเดิมเกิดขึ้นซ้ำเกิน 20% ของระบบ ควรพิจารณาประสานงานกับทีมพัฒนาเพื่อแก้ไขที่ต้นเหตุ (Root Cause)
-    """)
-else:
-    st.info("ไม่พบข้อมูล Defect ที่ชัดเจนสำหรับการวิเคราะห์")
-st.markdown("</div>", unsafe_allow_html=True)
+with tab3:
+    st.markdown("<h3>3️⃣ วิเคราะห์การขอตั้งค่า (Config Request Patterns)</h3>", unsafe_allow_html=True)
+    if 'TicketType' in df.columns and 'CategoryLevel1' in df.columns:
+        req_df = df[df['TicketType'].astype(str).str.contains('Request|Service', case=False, na=False)]
+        if not req_df.empty:
+            cat_df = req_df['CategoryLevel1'].fillna('Unknown').value_counts().head(10).reset_index()
+            cat_df.columns = ['Category', 'Count']
+            
+            fig_req = px.bar(cat_df, y='Category', x='Count', orientation='h', text_auto=True, color='Count', color_continuous_scale='Purples')
+            st.plotly_chart(fig_req, use_container_width=True)
+            
+            st.markdown("<div class='analysis-card'>", unsafe_allow_html=True)
+            st.markdown("**💡 ไอเดียเชิงบริหาร:**")
+            top_req = cat_df.iloc[0]['Category'] if not cat_df.empty else ""
+            st.markdown(f"- คำขอที่เสียเวลาทีมมากที่สุดคือ **{top_req}**")
+            st.markdown("- หากการทำ Config เหล่านี้มีรูปแบบที่ตายตัว (Standardized) ควรพิจารณา: <br>1) พัฒนา Tool เล็กๆ ให้ User ทำได้เองแบบจำกัดสิทธิ์ <br>2) ทำ Script รันอัตโนมัติ", unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+        else:
+            st.info("ไม่พบข้อมูลประเภท Request")
 
+with tab4:
+    st.markdown("<h3>4️⃣ เจาะจง Pain Point ของแต่ละ Business Group</h3>", unsafe_allow_html=True)
+    if 'BusinessGroup' in df.columns and 'CategoryLevel1' in df.columns:
+        bg_cat_df = df.groupby(['BusinessGroup', 'CategoryLevel1']).size().reset_index(name='Count')
+        bg_cat_df = bg_cat_df[~bg_cat_df['BusinessGroup'].str.contains('Unknown|-', case=False, na=False)]
+        
+        if not bg_cat_df.empty:
+            # Pivot for heatmap
+            pivot = bg_cat_df.pivot(index='BusinessGroup', columns='CategoryLevel1', values='Count').fillna(0)
+            fig_heat = px.imshow(pivot, aspect="auto", color_continuous_scale='Oranges', text_auto=True)
+            st.plotly_chart(fig_heat, use_container_width=True)
+            
+            st.markdown("<div class='analysis-card'>", unsafe_allow_html=True)
+            st.markdown("**💡 ไอเดียเชิงบริหาร:**")
+            st.markdown("- **Heatmap (แผนที่ความร้อน)** สีที่เข้มที่สุดคือจุดที่เป็น Pain Point หนักที่สุดของแผนกนั้นๆ")
+            st.markdown("- ควรนำข้อมูลนี้ไปใช้ **จัดทำคอร์ส Training เจาะจงเฉพาะแผนก** (เช่น แผนกบัญชีเจอปัญหาระบบ A บ่อย ก็จัดสอนแค่บัญชี) จะช่วยลดจำนวนตั๋วลงได้อย่างมีนัยสำคัญ")
+            st.markdown("</div>", unsafe_allow_html=True)
+        else:
+            st.info("ไม่พบข้อมูล Business Group ที่ชัดเจน")
 
-# ==========================================
-# VISUALIZATION
-# ==========================================
-c1, c2 = st.columns([1, 1])
+with tab5:
+    st.markdown("<h3>5️⃣ ประสิทธิภาพการรับเรื่องตามช่องทาง (Channel Effectiveness)</h3>", unsafe_allow_html=True)
+    if 'Channel' in df.columns:
+        ch_df = df['Channel'].fillna('Unknown').value_counts().reset_index()
+        ch_df.columns = ['Channel', 'Volume']
+        
+        c1, c2 = st.columns(2)
+        with c1:
+            fig_ch = px.bar(ch_df, x='Channel', y='Volume', text_auto=True, color='Volume', color_continuous_scale='Greens')
+            st.plotly_chart(fig_ch, use_container_width=True)
+            
+        with c2:
+            if 'EffortTime' in df.columns:
+                ch_time = df.groupby('Channel')['EffortTime'].mean().reset_index()
+                fig_time = px.bar(ch_time, x='Channel', y='EffortTime', title='Avg Effort Time (Days) by Channel', text_auto=True)
+                st.plotly_chart(fig_time, use_container_width=True)
+                
+        st.markdown("<div class='analysis-card'>", unsafe_allow_html=True)
+        st.markdown("**💡 ไอเดียเชิงบริหาร:**")
+        st.markdown("- หากช่องทางที่มี Volume สูงสุด (เช่น โทรศัพท์) ใช้เวลาแก้ปัญหานานที่สุด อาจจะต้องพิจารณาเพิ่มคนตอบรับในช่องทางนั้น หรือบังคับให้ User ไปใช้ช่องทางที่เป็นระบบมากขึ้น (เช่น Portal) เพื่อให้ง่ายต่อการติดตามงาน")
+        st.markdown("</div>", unsafe_allow_html=True)
 
-with c1:
-    st.markdown("<div class='analysis-card'>", unsafe_allow_html=True)
-    st.markdown("<h4>📊 Defect Distribution (Treemap)</h4>", unsafe_allow_html=True)
-    if not kb_df.empty:
-        fig_tree = px.treemap(kb_df, path=['Solution/Defect LV 1', 'Solution/Defect LV 2'], values='Frequency',
-                              color='Frequency', color_continuous_scale=px.colors.sequential.Teal)
-        st.plotly_chart(fig_tree, use_container_width=True)
-    else:
-        st.info("ไม่มีข้อมูลสำหรับกราฟ")
-    st.markdown("</div>", unsafe_allow_html=True)
-
-with c2:
-    st.markdown("<div class='analysis-card'>", unsafe_allow_html=True)
-    st.markdown("<h4>📈 Top 10 Specific Defects</h4>", unsafe_allow_html=True)
-    if not kb_df.empty:
-        top10_df = kb_df.head(10).copy()
-        top10_df['Defect Path'] = top10_df['Solution/Defect LV 1'] + " > " + top10_df['Solution/Defect LV 2']
-        fig_bar = px.bar(top10_df, x='Frequency', y='Defect Path', orientation='h', text_auto=True,
-                         color='Frequency', color_continuous_scale=px.colors.sequential.Teal)
-        st.plotly_chart(fig_bar, use_container_width=True)
-    else:
-        st.info("ไม่มีข้อมูลสำหรับกราฟ")
-    st.markdown("</div>", unsafe_allow_html=True)
-
-# ==========================================
-# GROUPED KNOWLEDGE BASE TABLE
-# ==========================================
-st.markdown("<div class='analysis-card'>", unsafe_allow_html=True)
-st.markdown("<h3>📚 Solution Knowledge Base (จัดกลุ่มปัญหาที่เหมือนกัน)</h3>", unsafe_allow_html=True)
-
-if not kb_df.empty:
-    st.dataframe(kb_df.style.set_properties(**{'font-size': '14px'}), use_container_width=True, hide_index=True, height=500)
-else:
-    st.warning("ไม่สามารถสร้างตาราง Knowledge Base ได้ เนื่องจากข้อมูลไม่ครบถ้วน")
-st.markdown("</div>", unsafe_allow_html=True)
