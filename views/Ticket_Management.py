@@ -217,7 +217,7 @@ def load_data():
             
         def eval_sla(row):
             status = str(row.get('Status', ''))
-            is_closed = 'Complete' in status or 'Closed' in status or 'Resolve' in status
+            is_closed = 'Complete' in status or 'Closed' in status or 'Resolve' in status or 'Cancel' in status or 'Reject' in status
             end_sla = row.get('EndSLADate')
             finish = row.get('FinishDate')
             
@@ -238,13 +238,17 @@ def load_data():
         df['SLA_Status'] = df.apply(eval_sla, axis=1)
         
         # Coordinate Flag
-        if 'Status' in df.columns:
-            df['IsCoordinate'] = df['Status'].str.contains('Coordinate', case=False, na=False)
+        if 'RefTicket' in df.columns:
+            # Mark as coordinate if RefTicket is not empty and not '0' or '0.0'
+            df['IsCoordinate'] = df['RefTicket'].astype(str).str.strip().str.replace(r'\.0$', '', regex=True).apply(lambda x: x != '' and x != 'nan' and x != '0' and x != 'None')
         else:
             df['IsCoordinate'] = False
             
         # Open Flag
         df['IsOpen'] = ~df['Status'].str.contains('Complete|Closed|Resolve|Reject|Cancel|Close', case=False, na=False)
+        
+        # Only count OPEN coordinate tickets
+        df['IsCoordinate'] = df['IsCoordinate'] & df['IsOpen']
 
         # Extract Date for trend
         if 'CreateDate' in df.columns:
@@ -421,7 +425,15 @@ with tab4:
             
     with c_coord2:
         st.markdown("**🟣 รายการเอกสาร / Ticket ที่อยู่ระหว่างการประสานงาน**")
-        display_dataframe(coord_df)
+        
+        # Ensure RefTicket is displayed
+        temp_display_cols = display_cols.copy()
+        if 'RefTicket' in coord_df.columns and 'RefTicket' not in temp_display_cols:
+            temp_display_cols.insert(1, 'RefTicket')
+        if not coord_df.empty:
+            st.dataframe(coord_df[temp_display_cols], use_container_width=True, hide_index=True)
+        else:
+            st.success("🎉 ไม่มีรายการที่ต้องจัดการในหมวดหมู่นี้")
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ==========================================
