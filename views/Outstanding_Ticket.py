@@ -73,57 +73,65 @@ if raw_df.empty:
     st.warning("ไม่พบไฟล์ข้อมูล กรุณาอัปโหลดไฟล์ Excel ในหน้า Ticket Management ก่อน")
     st.stop()
 
-# OUTSTANDING TRANSFORMATION
-# Filter for Accept, Acknowledge
-if 'Status' in raw_df.columns:
-    df = raw_df[raw_df['Status'].astype(str).str.contains('Accept|Acknowledge', case=False, na=False)].copy()
-else:
-    df = pd.DataFrame()
+# OUTSTANDING TRANSFORMATION (All Open / In-Progress Tickets)
+df = raw_df.copy()
 
 if df.empty:
-    st.info("ไม่มีงาน Outstanding (Status: Accept, Acknowledge) ในขณะนี้")
+    st.info("ไม่มีงาน Outstanding ที่เปิดค้างอยู่ในขณะนี้")
     st.stop()
 
 # Convert dates
-for col in ['CreateDate', 'StartSLADate', 'EndSLADate']:
+for col in ['CreateDate', 'StartSLADate', 'EndSLADate', 'UpdateDate']:
     if col in df.columns:
         df[col] = pd.to_datetime(df[col], errors='coerce')
 
 current_time = pd.Timestamp.now()
+if 'UpdateDate' in df.columns and not df['UpdateDate'].isna().all():
+    current_time = df['UpdateDate'].max()
+
+def safe_str_series(frame, col_name, default_val='Unknown'):
+    if col_name in frame.columns:
+        return frame[col_name].fillna(default_val).astype(str).replace({'nan': default_val, 'None': default_val, 'NaT': default_val})
+    return pd.Series([default_val] * len(frame), index=frame.index)
 
 # Create requested columns map
-out_df = pd.DataFrame()
-out_df['Ticket Type'] = df.get('TicketType', 'Unknown')
-out_df['Ticket No.'] = df.get('TicketID', 'Unknown')
-out_df['Status'] = df.get('Status', 'Unknown')
+out_df = pd.DataFrame(index=df.index)
+out_df['Ticket Type'] = safe_str_series(df, 'TicketType', 'Unknown')
+out_df['Ticket No.'] = safe_str_series(df, 'TicketID', 'Unknown').str.replace(r'\.0$', '', regex=True)
+out_df['Status'] = safe_str_series(df, 'Status', 'Unknown')
 
 # Load Notes from GSheets
 notes_df = load_ticket_notes()
 if not notes_df.empty and 'TicketID' in notes_df.columns:
     notes_df['TicketID'] = notes_df['TicketID'].astype(str).str.replace(r'\.0$', '', regex=True)
     notes_df = notes_df.drop_duplicates(subset=['TicketID'], keep='last')
-    notes_dict = dict(zip(notes_df['TicketID'], notes_df['Note Status'].astype(str)))
-    out_df['Note Status'] = out_df['Ticket No.'].astype(str).str.replace(r'\.0$', '', regex=True).map(notes_dict).fillna('')
+    notes_dict = dict(zip(notes_df['TicketID'], notes_df['Note Status'].fillna('').astype(str).replace('nan', '')))
+    out_df['Note Status'] = out_df['Ticket No.'].map(notes_dict).fillna('')
 else:
     out_df['Note Status'] = ''
 
-out_df['Parent ID 1'] = df.get('CategoryLevel1', 'Unknown')
-out_df['Child ID 2'] = df.get('CategoryLevel2', 'Unknown')
-out_df['Name Staff'] = df.get('ResponseBy', 'Unknown')
+out_df['Parent ID 1'] = safe_str_series(df, 'CategoryLevel1', 'Unknown')
+out_df['Child ID 2'] = safe_str_series(df, 'CategoryLevel2', 'Unknown')
+out_df['Name Staff'] = safe_str_series(df, 'ResponseBy', 'Unknown')
 
 if 'CreateDate' in df.columns:
-    out_df['Ageing day'] = (current_time - df['CreateDate']).dt.days
+    out_df['Ageing day'] = pd.to_numeric((current_time - df['CreateDate']).dt.days, errors='coerce').fillna(0).astype(int)
 else:
     out_df['Ageing day'] = 0
 
-bg = df.get('BusinessGroup', '').fillna('')
-cat1 = df.get('CategoryLevel1', '').fillna('')
+bg_col = 'BusinessGroup' if 'BusinessGroup' in df.columns else ('Business' if 'Business' in df.columns else '')
+bg = safe_str_series(df, bg_col, '') if bg_col else pd.Series([''] * len(df), index=df.index)
+cat1 = safe_str_series(df, 'CategoryLevel1', '')
 out_df['Case - (Duration)-Problem'] = bg + " => " + cat1
 
-out_df['Duration(Days)'] = df.get('EffortTime', 0)
-out_df['Create Date/Time'] = df.get('CreateDate', '')
-out_df['Details'] = df.get('DescriptionOfProblem', '')
-out_df['Solution for IT'] = df.get('SolutionForIT', '')
+if 'EffortTime' in df.columns:
+    out_df['Duration(Days)'] = pd.to_numeric(df['EffortTime'], errors='coerce').fillna(0.0)
+else:
+    out_df['Duration(Days)'] = 0.0
+
+out_df['Create Date/Time'] = df['CreateDate'].dt.strftime('%Y-%m-%d %H:%M').fillna('') if 'CreateDate' in df.columns else ''
+out_df['Details'] = safe_str_series(df, 'DescriptionOfProblem', '')
+out_df['Solution for IT'] = safe_str_series(df, 'SolutionForIT', '')
 
 def eval_sla(row):
     end_sla = row.get('EndSLADate')
@@ -133,9 +141,10 @@ def eval_sla(row):
     return 'Within SLA'
 
 out_df['SLA Rank'] = df.apply(eval_sla, axis=1) if 'EndSLADate' in df.columns else 'Unknown'
-out_df['Start SLA date'] = df.get('StartSLADate', '')
-out_df['SLA Due'] = df.get('EndSLADate', '')
-out_df['Actual SLA'] = df.get('SLAStatus', '')
+out_df['Start SLA date'] = df['StartSLADate'].dt.strftime('%Y-%m-%d %H:%M').fillna('') if 'StartSLADate' in df.columns else ''
+out_df['SLA Due'] = df['EndSLADate'].dt.strftime('%Y-%m-%d %H:%M').fillna('') if 'EndSLADate' in df.columns else ''
+sla_col = 'SLAStatus' if 'SLAStatus' in df.columns else ('ActualSLA' if 'ActualSLA' in df.columns else '')
+out_df['Actual SLA'] = safe_str_series(df, sla_col, '') if sla_col else ''
 out_df['Count of status case'] = 1
 
 # ==========================================

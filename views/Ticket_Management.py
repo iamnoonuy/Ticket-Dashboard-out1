@@ -401,7 +401,7 @@ with tab2:
 with tab3:
     st.markdown("<div class='dashboard-card'>", unsafe_allow_html=True)
     if 'ResponseBy' in filtered_df.columns:
-        unassigned_df = filtered_df[(filtered_df['ResponseBy'].str.contains('Unknown|-|nan', case=False, na=False) | (filtered_df['ResponseBy'] == '')) & (filtered_df['IsOpen'] == True)]
+        unassigned_df = filtered_df[(filtered_df['ResponseBy'].astype(str).str.strip().isin(['Unknown', '-', 'nan', 'None', ''])) & (filtered_df['IsOpen'] == True)]
         st.markdown("**👤 รายการ Ticket ที่เปิดไว้แต่ยังไม่มีผู้รับผิดชอบ**")
         display_dataframe(unassigned_df)
     else:
